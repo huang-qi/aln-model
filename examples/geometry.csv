@@ -1,0 +1,3 @@
+Training_Row_ID,Train_A_res_um2,Train_L_top_um,Train_L_bot_um,Train_L_air_um,Train_h_FL_nm,Train_L_FL_um,Train_h_AG_nm,Train_L_AG_um,Train_h_EG_nm,Train_L_EG_um,Train_PF_nm,Template,EG_State,has_FL,has_AG,has_patterned_EG,EG_material_present,has_PF,is_BASIC
+synthetic-001,10000.0,24.0,18.0,6.0,120.0,12.0,80.0,8.0,100.0,10.0,40.0,T11,patterned,1,1,1,1,1,0
+synthetic-002,12500.0,28.0,20.0,8.0,0.0,0.0,90.0,9.0,110.0,14.0,0.0,T10,blanket,0,1,0,1,0,1

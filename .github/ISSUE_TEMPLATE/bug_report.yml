@@ -1,0 +1,49 @@
+{
+  "name": "Bug report",
+  "description": "Report reproducible incorrect behavior in aln-model",
+  "title": "[Bug]: ",
+  "labels": ["bug"],
+  "body": [
+    {
+      "type": "markdown",
+      "attributes": {
+        "value": "Thanks for helping us improve aln-model. Do not include sensitive data."
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "description",
+      "attributes": {
+        "label": "What happened?",
+        "description": "Describe the observed and expected behavior."
+      },
+      "validations": {"required": true}
+    },
+    {
+      "type": "textarea",
+      "id": "reproduction",
+      "attributes": {
+        "label": "Minimal reproduction",
+        "description": "Provide the smallest safe, synthetic example that reproduces the problem."
+      },
+      "validations": {"required": true}
+    },
+    {
+      "type": "textarea",
+      "id": "environment",
+      "attributes": {
+        "label": "Environment",
+        "description": "Include aln-model version, Python version, operating system, and dependency versions."
+      },
+      "validations": {"required": true}
+    },
+    {
+      "type": "textarea",
+      "id": "logs",
+      "attributes": {
+        "label": "Logs or traceback",
+        "render": "shell"
+      }
+    }
+  ]
+}

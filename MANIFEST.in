@@ -1,0 +1,7 @@
+include CODE_OF_CONDUCT.md
+include CONTRIBUTING.md
+include LICENSE
+include README.md
+include SECURITY.md
+include docs/MODEL_CARD.md
+include examples/geometry.csv

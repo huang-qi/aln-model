@@ -1,0 +1,60 @@
+# Proprietary archives, simulation data, and workbooks
+*.[zZ][iI][pP]
+*.[tT][aA][rR]
+*.[tT][aA][rR].[gG][zZ]
+*.[tT][aA][rR].[bB][zZ][2]
+*.[tT][aA][rR].[xX][zZ]
+*.[tT][gG][zZ]
+*.[7][zZ]
+*.[rR][aA][rR]
+*.[gG][zZ]
+*.[bB][zZ][2]
+*.[xX][zZ]
+*.[sS][0-9]*[pP]
+*.[sS][nN][pP]
+*.[xX][lL][sS]
+*.[xX][lL][sS][xX]
+*.[xX][lL][sS][mM]
+*.[xX][lL][sS][bB]
+
+# Root documentation is deny-by-default; only public release documents are allowed
+/*.md
+!/README.md
+!/CONTRIBUTING.md
+!/SECURITY.md
+!/CODE_OF_CONDUCT.md
+
+# Generated project outputs
+/artifacts/
+/reports/
+/predictions/
+/generated_predictions/
+/docs/superpowers/
+
+# Python environments and caches
+/.venv/
+venv/
+env/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.py[cod]
+
+# Trained models and NumPy artifacts
+*.[jJ][oO][bB][lL][iI][bB]
+*.[pP][kK][lL]
+*.[pP][iI][cC][kK][lL][eE]
+*.[oO][nN][nN][xX]
+*.[nN][pP][yY]
+*.[nN][pP][zZ]
+
+# Private and generated reports
+*[tT][eE][cC][hH][nN][iI][cC][aA][lL]_[rR][eE][pP][oO][rR][tT].*
+*技术报告*
+*.[dD][oO][cC]
+*.[dD][oO][cC][xX]
+
+# Packaging and build outputs
+*.egg-info/
+/build/
+/dist/

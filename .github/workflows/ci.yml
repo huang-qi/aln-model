@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            uv.lock
+      - name: Install development dependencies
+        run: python -m pip install ".[dev]"
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: python -m pytest
+
+  distribution-smoke:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Build source and wheel distributions
+        run: |
+          python -m pip install build
+          python -m build
+      - name: Smoke-test the wheel in a clean environment
+        shell: bash
+        run: |
+          mapfile -t wheels < <(find dist -maxdepth 1 -type f -name '*.whl' -print)
+          if (( ${#wheels[@]} != 1 )); then
+            echo "Expected exactly one wheel, found ${#wheels[@]}" >&2
+            exit 1
+          fi
+
+          wheel_path="$(realpath "${wheels[0]}")"
+          smoke_venv="${RUNNER_TEMP}/aln-wheel-smoke-${{ matrix.python-version }}"
+          python -m venv "$smoke_venv"
+          "$smoke_venv/bin/python" -m pip install "$wheel_path"
+
+          cd "$RUNNER_TEMP"
+          "$smoke_venv/bin/python" -c "import aln_model; print(aln_model.__version__)"
+          "$smoke_venv/bin/aln-model" --help

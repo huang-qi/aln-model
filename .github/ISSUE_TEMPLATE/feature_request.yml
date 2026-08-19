@@ -1,0 +1,40 @@
+{
+  "name": "Feature request",
+  "description": "Suggest an improvement to aln-model",
+  "title": "[Feature]: ",
+  "labels": ["enhancement"],
+  "body": [
+    {
+      "type": "markdown",
+      "attributes": {
+        "value": "Thanks for suggesting an improvement."
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "problem",
+      "attributes": {
+        "label": "Problem or use case",
+        "description": "Explain the need and who would benefit."
+      },
+      "validations": {"required": true}
+    },
+    {
+      "type": "textarea",
+      "id": "proposal",
+      "attributes": {
+        "label": "Proposed solution",
+        "description": "Describe the behavior or interface you would like."
+      },
+      "validations": {"required": true}
+    },
+    {
+      "type": "textarea",
+      "id": "alternatives",
+      "attributes": {
+        "label": "Alternatives considered",
+        "description": "Note any workarounds or alternative designs."
+      }
+    }
+  ]
+}
