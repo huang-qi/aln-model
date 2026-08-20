@@ -82,6 +82,59 @@ def _mean_or_nan(values: np.ndarray) -> float:
     return float(np.mean(values)) if values.size else float("nan")
 
 
+def _q_raw_metrics(actual: np.ndarray, predicted: np.ndarray) -> dict[str, float]:
+    names = ("mae", "rmse", "median_absolute_error", "mape_percent", "r2")
+    if actual.size == 0:
+        return {name: float("nan") for name in names}
+    if not np.all(np.isfinite(predicted)):
+        values = {name: float("inf") for name in names if name != "r2"}
+        values["r2"] = float("nan")
+        return values
+
+    with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+        error = predicted - actual
+        absolute_error = np.abs(error)
+        mae = float(np.mean(absolute_error))
+        rmse = float(np.sqrt(np.mean(np.square(error))))
+        median_absolute_error = float(np.median(absolute_error))
+        mape_percent = (
+            float("inf")
+            if np.any(actual == 0)
+            else float(np.mean(absolute_error / np.abs(actual)) * 100)
+        )
+        total_sum_squares = float(np.sum(np.square(actual - np.mean(actual))))
+        residual_sum_squares = float(np.sum(np.square(error)))
+    r2 = (
+        float(1 - residual_sum_squares / total_sum_squares)
+        if actual.size >= 2
+        and np.isfinite(total_sum_squares)
+        and total_sum_squares > 0
+        and np.isfinite(residual_sum_squares)
+        else float("nan")
+    )
+    return {
+        "mae": mae,
+        "rmse": rmse,
+        "median_absolute_error": median_absolute_error,
+        "mape_percent": mape_percent,
+        "r2": r2,
+    }
+
+
+def _row_q_errors(
+    truth: pd.DataFrame, prediction: pd.DataFrame, target: str
+) -> tuple[np.ndarray, np.ndarray]:
+    actual = pd.to_numeric(truth[target], errors="coerce").to_numpy(float)
+    predicted = pd.to_numeric(prediction[target], errors="coerce").to_numpy(float)
+    valid = _valid_mask(truth, target)
+    absolute_error = np.abs(predicted - actual)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        log_error = np.abs(np.log(predicted) - np.log(actual))
+    absolute_error[valid & ~np.isfinite(absolute_error)] = np.inf
+    log_error[valid & ~np.isfinite(log_error)] = np.inf
+    return absolute_error, log_error
+
+
 def evaluate_predictions(
     truth: pd.DataFrame,
     prediction: pd.DataFrame,
@@ -143,6 +196,7 @@ def evaluate_predictions(
     else:
         metrics["worst5_frequency_error_mhz"] = float("nan")
 
+    row_q_errors: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for target in ("qs", "qp"):
         mask = _valid_mask(truth, target)
         actual = pd.to_numeric(truth.loc[mask, target], errors="coerce").to_numpy(float)
@@ -160,6 +214,9 @@ def evaluate_predictions(
         else:
             value = float(np.mean(np.abs(np.log(predicted) - np.log(actual))))
         metrics[f"{target}_log_mae"] = value
+        for name, raw_value in _q_raw_metrics(actual, predicted).items():
+            metrics[f"{target}_{name}"] = raw_value
+        row_q_errors[target] = _row_q_errors(truth, prediction, target)
 
     spurious_mask = _valid_mask(truth, "spurious_dangerous")
     spurious_truth = truth.loc[spurious_mask, "spurious_dangerous"].astype(bool).to_numpy()
@@ -236,16 +293,28 @@ def evaluate_predictions(
             normalized_values = values.astype(str)
             for category in categories:
                 slice_mask = normalized_values.eq(category).to_numpy()
-                fs_slice_error = row_fs_error[
-                    slice_mask & _valid_mask(truth, "fs_hz")
-                ]
-                fp_slice_error = row_fp_error[
-                    slice_mask & _valid_mask(truth, "fp_hz")
-                ]
+                fs_mask = slice_mask & _valid_mask(truth, "fs_hz")
+                fp_mask = slice_mask & _valid_mask(truth, "fp_hz")
+                qs_mask = slice_mask & _valid_mask(truth, "qs")
+                qp_mask = slice_mask & _valid_mask(truth, "qp")
+                fs_slice_error = row_fs_error[fs_mask]
+                fp_slice_error = row_fp_error[fp_mask]
+                qs_slice_error = row_q_errors["qs"][0][qs_mask]
+                qp_slice_error = row_q_errors["qp"][0][qp_mask]
+                qs_slice_log_error = row_q_errors["qs"][1][qs_mask]
+                qp_slice_log_error = row_q_errors["qp"][1][qp_mask]
                 group[category] = {
                     "count": int(slice_mask.sum()),
+                    "fs_count": int(fs_mask.sum()),
+                    "fp_count": int(fp_mask.sum()),
+                    "qs_count": int(qs_mask.sum()),
+                    "qp_count": int(qp_mask.sum()),
                     "fs_mae_mhz": _mean_or_nan(fs_slice_error) / 1e6,
                     "fp_mae_mhz": _mean_or_nan(fp_slice_error) / 1e6,
+                    "qs_mae": _mean_or_nan(qs_slice_error),
+                    "qp_mae": _mean_or_nan(qp_slice_error),
+                    "qs_log_mae": _mean_or_nan(qs_slice_log_error),
+                    "qp_log_mae": _mean_or_nan(qp_slice_log_error),
                 }
             slices[group_name] = group
 

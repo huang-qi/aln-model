@@ -3,7 +3,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from aln_model import model
 from aln_model.model import ApplicabilityDomain, SurrogateBundle
+from aln_model.routes.extratrees import ExtraTreesRawRoute
 from aln_model.routes.base import RoutePrediction
 
 
@@ -70,3 +72,61 @@ def test_applicability_preserves_missingness_seen_during_training():
     assessed = domain.assess(pd.DataFrame({"Train_PF_nm": [np.nan, 300.0]}))
 
     assert assessed["ood"].tolist() == [False, True]
+
+
+def test_scalar_route_metadata_records_frozen_q_head_configuration():
+    signal = np.arange(8, dtype=float)
+    features = pd.DataFrame(
+        {
+            "Training_Row_ID": [f"row-{index}" for index in range(len(signal))],
+            "Train_A_res_um2": signal,
+            "Template": np.where(signal % 2 == 0, "T11", "T01"),
+            "EG_State": np.where(signal % 3 == 0, "patterned", "blanket"),
+        }
+    )
+    fs_hz = 4.8e9 + signal * 1e6
+    fp_hz = fs_hz + 2e8
+    targets = pd.DataFrame(
+        {
+            "Training_Row_ID": features["Training_Row_ID"],
+            "fs_hz": fs_hz,
+            "fp_hz": fp_hz,
+            "k_eff2": 1 - np.square(fs_hz / fp_hz),
+            "qs": 100 + signal,
+            "qp": 200 + signal,
+            "spurious_dangerous": signal >= 4,
+        }
+    )
+    route = ExtraTreesRawRoute(n_estimators=4, random_state=5, n_jobs=1).fit(
+        features, targets
+    )
+
+    metadata = model._scalar_route_metadata(route)
+
+    assert metadata == {
+        "scalar_route_schema_version": 2,
+        "q_head": {
+            "qs": {
+                "robust_weight": 0.25,
+                "primary_criterion": "squared_error",
+                "primary_min_samples_leaf": 1,
+                "robust_criterion": "absolute_error",
+                "robust_min_samples_leaf": 4,
+            },
+            "qp": {
+                "robust_weight": 0.5,
+                "primary_criterion": "squared_error",
+                "primary_min_samples_leaf": 1,
+                "robust_criterion": "absolute_error",
+                "robust_min_samples_leaf": 1,
+            },
+            "qp_supported_templates": ["T00", "T01", "T11"],
+            "qp_required_eg_state": "patterned",
+        },
+    }
+
+
+def test_scalar_route_metadata_omits_q_head_for_legacy_route():
+    assert model._scalar_route_metadata(_ScalarRoute()) == {
+        "scalar_route_schema_version": 2
+    }

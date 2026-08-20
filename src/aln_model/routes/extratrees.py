@@ -17,7 +17,48 @@ _ID_COLUMN = "Training_Row_ID"
 # k_eff2 is reconstructed exactly from fs/fp at prediction time, so fitting a
 # sixth forest for it would consume compute without affecting the output.
 _REGRESSION_TARGETS = ("fs_hz", "fp_hz", "qs", "qp")
+_Q_TARGETS = ("qs", "qp")
+_ROBUST_Q_MIN_SAMPLES_LEAF = {"qs": 4, "qp": 1}
+_QS_ROBUST_WEIGHT = 0.25
+_QP_ROBUST_WEIGHT = 0.5
+_QP_ROBUST_TEMPLATES = frozenset({"T11", "T01", "T00"})
+_QP_ROBUST_EG_STATE = "patterned"
 _CLASSIFICATION_TARGET = "spurious_dangerous"
+
+
+def _blend_q_predictions(
+    features: pd.DataFrame,
+    primary_qs: np.ndarray,
+    robust_qs: np.ndarray,
+    primary_qp: np.ndarray,
+    robust_qp: np.ndarray,
+    *,
+    qs_robust_weight: float,
+    qp_robust_weight: float,
+    qp_robust_templates: frozenset[str],
+    qp_robust_eg_state: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply the frozen robust-head blend without changing non-Q predictions."""
+
+    qs = (1.0 - qs_robust_weight) * primary_qs + qs_robust_weight * robust_qs
+    eg_state = features.get("EG_State", pd.Series("", index=features.index))
+    template = features.get("Template", pd.Series("", index=features.index))
+    eligible_eg_state = (
+        eg_state.fillna("")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .eq(qp_robust_eg_state.strip().lower())
+    )
+    normalized_template = template.fillna("").astype(str).str.strip().str.upper()
+    use_robust_qp = (
+        eligible_eg_state & normalized_template.isin(qp_robust_templates)
+    ).to_numpy()
+    qp_blend = (
+        (1.0 - qp_robust_weight) * primary_qp + qp_robust_weight * robust_qp
+    )
+    qp = np.where(use_robust_qp, qp_blend, primary_qp)
+    return np.asarray(qs, dtype=float), np.asarray(qp, dtype=float)
 
 
 class ExtraTreesRawRoute:
@@ -115,6 +156,26 @@ class ExtraTreesRawRoute:
             model.fit(transformed[mask], values[mask])
             self.regressors_[target] = model
 
+        self.robust_q_regressors_: dict[str, ExtraTreesRegressor] = {}
+        self.qs_robust_weight_ = _QS_ROBUST_WEIGHT
+        self.qp_robust_weight_ = _QP_ROBUST_WEIGHT
+        self.qp_robust_templates_ = _QP_ROBUST_TEMPLATES
+        self.qp_robust_eg_state_ = _QP_ROBUST_EG_STATE
+        for target in _Q_TARGETS:
+            values = pd.to_numeric(targets[target], errors="coerce").to_numpy(float)
+            mask = self._target_mask(targets, target) & np.isfinite(values)
+            primary = self.regressors_[target]
+            model = ExtraTreesRegressor(
+                n_estimators=primary.n_estimators,
+                criterion="absolute_error",
+                max_features=primary.max_features,
+                random_state=primary.random_state,
+                n_jobs=primary.n_jobs,
+                min_samples_leaf=_ROBUST_Q_MIN_SAMPLES_LEAF[target],
+            )
+            model.fit(transformed[mask], values[mask])
+            self.robust_q_regressors_[target] = model
+
         class_values = pd.to_numeric(
             targets[_CLASSIFICATION_TARGET], errors="coerce"
         ).to_numpy(float)
@@ -151,8 +212,35 @@ class ExtraTreesRawRoute:
         fp_hz = np.maximum(raw["fs_hz"], raw["fp_hz"])
         tied = fp_hz <= fs_hz
         fp_hz[tied] = np.nextafter(fs_hz[tied], np.inf)
-        qs = np.maximum(raw["qs"], np.finfo(float).tiny)
-        qp = np.maximum(raw["qp"], np.finfo(float).tiny)
+        robust_q_regressors = getattr(self, "robust_q_regressors_", None)
+        has_fitted_q_blend = (
+            isinstance(robust_q_regressors, dict)
+            and all(target in robust_q_regressors for target in _Q_TARGETS)
+            and hasattr(self, "qs_robust_weight_")
+            and hasattr(self, "qp_robust_weight_")
+            and hasattr(self, "qp_robust_templates_")
+            and hasattr(self, "qp_robust_eg_state_")
+        )
+        if has_fitted_q_blend:
+            robust_q = {
+                target: robust_q_regressors[target].predict(transformed)
+                for target in _Q_TARGETS
+            }
+            qs, qp = _blend_q_predictions(
+                features,
+                raw["qs"],
+                robust_q["qs"],
+                raw["qp"],
+                robust_q["qp"],
+                qs_robust_weight=self.qs_robust_weight_,
+                qp_robust_weight=self.qp_robust_weight_,
+                qp_robust_templates=self.qp_robust_templates_,
+                qp_robust_eg_state=self.qp_robust_eg_state_,
+            )
+        else:
+            qs, qp = raw["qs"], raw["qp"]
+        qs = np.maximum(qs, np.finfo(float).tiny)
+        qp = np.maximum(qp, np.finfo(float).tiny)
         k_eff2 = 1 - np.square(fs_hz / fp_hz)
 
         class_positions = np.flatnonzero(self.classifier_.classes_ == True)  # noqa: E712

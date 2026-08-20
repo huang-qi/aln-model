@@ -126,6 +126,40 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _scalar_route_metadata(route: object) -> dict[str, object]:
+    metadata: dict[str, object] = {"scalar_route_schema_version": 2}
+    primary = getattr(route, "regressors_", None)
+    robust = getattr(route, "robust_q_regressors_", None)
+    has_q_head = (
+        isinstance(primary, dict)
+        and isinstance(robust, dict)
+        and all(target in primary and target in robust for target in ("qs", "qp"))
+        and hasattr(route, "qs_robust_weight_")
+        and hasattr(route, "qp_robust_weight_")
+        and hasattr(route, "qp_robust_templates_")
+        and hasattr(route, "qp_robust_eg_state_")
+    )
+    if not has_q_head:
+        return metadata
+
+    q_head: dict[str, object] = {}
+    for target, weight in (
+        ("qs", route.qs_robust_weight_),
+        ("qp", route.qp_robust_weight_),
+    ):
+        q_head[target] = {
+            "robust_weight": float(weight),
+            "primary_criterion": str(primary[target].criterion),
+            "primary_min_samples_leaf": int(primary[target].min_samples_leaf),
+            "robust_criterion": str(robust[target].criterion),
+            "robust_min_samples_leaf": int(robust[target].min_samples_leaf),
+        }
+    q_head["qp_supported_templates"] = sorted(route.qp_robust_templates_)
+    q_head["qp_required_eg_state"] = str(route.qp_robust_eg_state_)
+    metadata["q_head"] = q_head
+    return metadata
+
+
 def train_final_bundle(
     prepared_directory: str | Path,
     benchmark_directory: str | Path,
@@ -196,6 +230,7 @@ def train_final_bundle(
                 "spectrum head covers only the shared 4.20-5.39 GHz grid."
             ),
         }
+        metadata.update(_scalar_route_metadata(scalar_route))
         (temporary / "metadata.json").write_text(
             json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8"
         )

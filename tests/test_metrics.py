@@ -230,3 +230,144 @@ def test_spurious_predictions_must_be_probabilities():
 
     with pytest.raises(ValueError, match="probabilities"):
         evaluate_predictions(truth, prediction)
+
+
+def test_q_raw_metrics_are_id_aligned_and_use_target_validity_masks():
+    truth = _truth()
+    truth["target_valid_qs"] = [True, True, False, False]
+    truth["target_valid_qp"] = [True, False, True, False]
+    prediction = truth.copy()
+    prediction["qs"] = [110.0, 160.0, 1e9, 1e9]
+    prediction["qp"] = [100.0, 1e9, 600.0, 1e9]
+    prediction = prediction.iloc[::-1].reset_index(drop=True)
+
+    metrics = evaluate_predictions(truth, prediction)
+
+    assert metrics["qs_mae"] == pytest.approx(25.0)
+    assert metrics["qs_rmse"] == pytest.approx(np.sqrt(850.0))
+    assert metrics["qs_median_absolute_error"] == pytest.approx(25.0)
+    assert metrics["qs_mape_percent"] == pytest.approx(15.0)
+    assert metrics["qs_r2"] == pytest.approx(0.66)
+    assert metrics["qp_mae"] == pytest.approx(70.0)
+    assert metrics["qp_rmse"] == pytest.approx(np.sqrt(7400.0))
+    assert metrics["qp_median_absolute_error"] == pytest.approx(70.0)
+    assert metrics["qp_mape_percent"] == pytest.approx(20.833333333333332)
+    assert metrics["qp_r2"] == pytest.approx(0.7716049382716049)
+
+
+def test_q_raw_metrics_score_nonfinite_prediction_as_infinite_and_r2_as_nan():
+    truth = _truth()
+    prediction = truth.copy()
+    prediction.loc[0, "qs"] = np.nan
+
+    metrics = evaluate_predictions(truth, prediction)
+
+    for metric in (
+        "qs_mae",
+        "qs_rmse",
+        "qs_median_absolute_error",
+        "qs_mape_percent",
+    ):
+        assert np.isinf(metrics[metric])
+    assert np.isnan(metrics["qs_r2"])
+
+
+@pytest.mark.parametrize(
+    "truth_values",
+    ([100.0], [100.0, 100.0]),
+)
+def test_q_r2_is_nan_for_fewer_than_two_rows_or_constant_truth(truth_values):
+    truth = _truth().iloc[: len(truth_values)].copy()
+    truth["qs"] = truth_values
+    prediction = truth.copy()
+
+    metrics = evaluate_predictions(truth, prediction)
+
+    assert np.isnan(metrics["qs_r2"])
+
+
+def test_q_raw_metrics_are_nan_without_valid_rows():
+    truth = _truth()
+    truth["target_valid_qs"] = False
+
+    metrics = evaluate_predictions(truth, truth.copy())
+
+    for metric in (
+        "qs_mae",
+        "qs_rmse",
+        "qs_median_absolute_error",
+        "qs_mape_percent",
+        "qs_r2",
+    ):
+        assert np.isnan(metrics[metric])
+
+
+def test_slice_metrics_include_q_errors_with_target_specific_validity():
+    truth = _truth()
+    truth["target_valid_qs"] = [True, False, True, True]
+    truth["target_valid_qp"] = [False, True, True, True]
+    prediction = truth.copy()
+    prediction["qs"] = [110.0, 1e9, 440.0, 800.0]
+    prediction["qp"] = [1e9, 216.0, 480.0, 1152.0]
+    slice_features = pd.DataFrame(
+        {
+            "Training_Row_ID": truth["Training_Row_ID"],
+            "Template": ["T11", "T11", "T10", "T10"],
+            "EG_State": ["patterned", "blanket", "patterned", "blanket"],
+            "Train_A_res_um2": [1.0, 2.0, 3.0, 4.0],
+        }
+    )
+
+    metrics = evaluate_predictions(
+        truth,
+        prediction,
+        slice_features=slice_features,
+        area_res_tertile_edges=(2.0, 3.0),
+    )
+
+    t11 = metrics["slices"]["Template"]["T11"]
+    assert t11["count"] == 2
+    assert t11["fs_count"] == 2
+    assert t11["fp_count"] == 2
+    assert t11["qs_count"] == 1
+    assert t11["qp_count"] == 1
+    assert t11["qs_mae"] == pytest.approx(10.0)
+    assert t11["qp_mae"] == pytest.approx(24.0)
+    assert t11["qs_log_mae"] == pytest.approx(abs(np.log(1.1)))
+    assert t11["qp_log_mae"] == pytest.approx(abs(np.log(0.9)))
+    patterned = metrics["slices"]["EG_State"]["patterned"]
+    assert patterned["qs_mae"] == pytest.approx(25.0)
+    assert patterned["qp_mae"] == pytest.approx(0.0)
+    low = metrics["slices"]["A_res_tertile"]["low"]
+    assert low["qs_mae"] == pytest.approx(10.0)
+    assert low["qp_mae"] == pytest.approx(24.0)
+
+
+def test_slice_q_counts_are_zero_and_metrics_nan_without_valid_rows():
+    truth = _truth()
+    truth["target_valid_qs"] = [True, True, False, False]
+    truth["target_valid_qp"] = [True, True, False, False]
+    slice_features = pd.DataFrame(
+        {
+            "Training_Row_ID": truth["Training_Row_ID"],
+            "Template": ["T11", "T11", "T10", "T10"],
+            "EG_State": ["patterned", "blanket", "patterned", "blanket"],
+            "Train_A_res_um2": [1.0, 2.0, 3.0, 4.0],
+        }
+    )
+
+    metrics = evaluate_predictions(
+        truth,
+        truth.copy(),
+        slice_features=slice_features,
+        area_res_tertile_edges=(2.0, 3.0),
+    )
+
+    t10 = metrics["slices"]["Template"]["T10"]
+    assert t10["count"] == 2
+    assert t10["qs_count"] == 0
+    assert t10["qp_count"] == 0
+    assert np.isnan(t10["qs_mae"])
+    assert np.isnan(t10["qp_mae"])
+    assert np.isnan(t10["qs_log_mae"])
+    assert np.isnan(t10["qp_log_mae"])
