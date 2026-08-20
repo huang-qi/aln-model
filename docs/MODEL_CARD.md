@@ -1,6 +1,6 @@
 # ALN/XBAW surrogate model card
 
-This card records one internal run completed on 2026-08-18
+This card records one internal run completed on 2026-08-20
 (Asia/Singapore). Its values are retained for traceability, not as a packaged
 benchmark. The underlying data and artifacts are not distributed with this
 repository, and these results are not universal performance guarantees.
@@ -12,8 +12,10 @@ repository, and these results are not universal performance guarantees.
   never cross folds.
 - Rare-event balance: 15 dangerous-spurious positives, exactly 3 per validation
   fold.
-- Scalar head: Extra Trees on raw features, fitted on all prepared rows after OOF
-  selection.
+- Scalar head: Extra Trees on raw features. Frequency targets use the original
+  squared-error heads. Q targets blend those heads with target-specific
+  absolute-error heads; Qp uses the blend only for supported patterned,
+  non-T10 topologies and otherwise falls back to the original head.
 - Spectrum head: functional PCA with 24 train-fold components and complex
   reconstruction projected to the passive one-port unit disk.
 - Spectrum grid: 1,191 points, 4.20–5.39 GHz at 1 MHz spacing.
@@ -30,7 +32,7 @@ acceptance targets.
 
 | Route | fs MAE (MHz) | fp MAE (MHz) | k_eff2 MAE (pp) | Qs log-MAE | Qp log-MAE | Worst 5% freq. (MHz) | Spurious AUCPR | Brier | Complex S11 RMSE |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Extra Trees raw | 0.100 | 1.372 | 0.0445 | 0.0214 | 0.0716 | 3.736 | 0.559 | 0.00736 | — |
+| Extra Trees raw | 0.100 | 1.372 | 0.0445 | 0.0206 | 0.0672 | 3.736 | 0.559 | 0.00736 | — |
 | Physics boosting | 0.662 | 1.414 | 0.0369 | 0.0268 | 0.0826 | 6.878 | 0.695 | 0.00655 | — |
 | RFF kernel | 12.228 | 13.395 | 0.0527 | 0.0305 | 0.1294 | 87.357 | 0.456 | 0.00963 | — |
 | Functional PCA | 0.694 | 1.944 | 0.0477 | 0.0325 | 0.1321 | 11.005 | 0.607 | 0.0200 | 0.1076 |
@@ -42,6 +44,15 @@ boosting). A 10,000-resample paired bootstrap on per-row mean `fs`/`fp` error
 gave Extra Trees minus physics boosting = -0.302 MHz, with a 95% interval of
 [-0.385, -0.228] MHz.
 
+The Q-head change was also evaluated on the original scale. Relative to the
+previous Extra Trees heads on the same development folds, Qs MAE changed from
+11.965 to 11.507, RMSE from 31.045 to 30.768, and R² from 0.283 to 0.295. Qp
+MAE changed from 18.986 to 17.906, RMSE from 28.378 to 27.701, and R² from
+0.597 to 0.616. Both Q targets improved on every one of the five folds. These
+blend choices were selected from a restricted candidate comparison using the
+same OOF dataset, so the changes are development results subject to model-
+selection bias, not an independent estimate of generalization.
+
 ## Applicability and limitations
 
 The trained bundle records min/max bounds for physical inputs, allowed
@@ -52,6 +63,10 @@ reasons.
 - These are group-aware OOF results, not external validation on an independent
   unseen-geometry dataset. Related samples are isolated by group, but that does
   not establish performance for a new process, device family, or data source.
+- Q is partly non-identifiable from the current geometry inputs: some repeated
+  geometries from different simulation batches have materially different Q
+  labels. Mode-crossing rows are especially difficult, and the current model
+  does not receive solver recipe or simulation-batch settings as inputs.
 - There is no D3-V validation or D3-V generalization claim because D3-V data were
   not supplied to this run.
 - Dangerous-spurious evaluation contains only 15 positives, so AUCPR is
